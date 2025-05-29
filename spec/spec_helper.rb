@@ -1,9 +1,15 @@
 # frozen_string_literal: true
 
 require 'timecop'
+require 'redis'
+require 'connection_pool'
 require 'queue-bus'
 require 'adapter/support'
 require 'pry'
+
+# Require some private Sidekiq APIs to simulate internal scheduling behavior
+require 'sidekiq/scheduled'
+require "sidekiq/capsule"
 
 reset_test_adapter
 
@@ -32,7 +38,14 @@ rescue => e
   exit 1
 end
 
-Sidekiq.redis = ConnectionPool.new { Redis.new(url: redis_url) }
+# Configure Sidekiq to use Redis with hash configuration (Sidekiq 7+ requirement)
+Sidekiq.configure_server do |config|
+  config.redis = { url: redis_url }
+end
+
+Sidekiq.configure_client do |config|
+  config.redis = { url: redis_url }
+end
 
 require 'fileutils'
 
@@ -43,7 +56,15 @@ FileUtils.touch(log_file)
 
 logger = Logger.new(File.open(log_file, 'a'))
 
-Sidekiq.logger = logger
+# Configure Sidekiq logger for Sidekiq 7+ compatibility
+Sidekiq.configure_server do |config|
+  config.logger = logger
+end
+
+Sidekiq.configure_client do |config|
+  config.logger = logger
+end
+
 QueueBus.logger = logger
 
 require 'sidekiq/testing'
