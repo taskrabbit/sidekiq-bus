@@ -1,14 +1,51 @@
 # frozen_string_literal: true
 
 require 'timecop'
+require 'redis'
+require 'connection_pool'
 require 'queue-bus'
 require 'adapter/support'
 require 'pry'
 
+# Require some private Sidekiq APIs to simulate internal scheduling behavior
+require 'sidekiq/scheduled'
+require "sidekiq/capsule"
+
 reset_test_adapter
 
-require 'fakeredis'
-Sidekiq.redis = ConnectionPool.new { Redis.new(driver: Redis::Connection::Memory) }
+# Use real Redis for testing to ensure compatibility with Sidekiq's Lua scripts
+redis_url = ENV.fetch('REDIS_URL', 'redis://localhost:6379/15')
+
+# Check Redis connection before running tests
+begin
+  test_redis = Redis.new(url: redis_url)
+  test_redis.ping
+  test_redis.disconnect!
+rescue Redis::CannotConnectError, Errno::ECONNREFUSED => e
+  puts "\n❌ Redis connection failed!"
+  puts "   URL: #{redis_url}"
+  puts "   Error: #{e.message}"
+  puts "\n💡 To fix this:"
+  puts "   • Start Redis with Docker: docker-compose up -d redis"
+  puts "   • Or start Redis locally: redis-server"
+  puts "   • Or set REDIS_URL environment variable to a running Redis instance"
+  puts "\n"
+  exit 1
+rescue => e
+  puts "\n❌ Unexpected error connecting to Redis:"
+  puts "   #{e.class}: #{e.message}"
+  puts "\n"
+  exit 1
+end
+
+# Configure Sidekiq to use Redis with hash configuration (Sidekiq 7+ requirement)
+Sidekiq.configure_server do |config|
+  config.redis = { url: redis_url }
+end
+
+Sidekiq.configure_client do |config|
+  config.redis = { url: redis_url }
+end
 
 require 'fileutils'
 
@@ -19,7 +56,15 @@ FileUtils.touch(log_file)
 
 logger = Logger.new(File.open(log_file, 'a'))
 
-Sidekiq.logger = logger
+# Configure Sidekiq logger for Sidekiq 7+ compatibility
+Sidekiq.configure_server do |config|
+  config.logger = logger
+end
+
+Sidekiq.configure_client do |config|
+  config.logger = logger
+end
+
 QueueBus.logger = logger
 
 require 'sidekiq/testing'
@@ -53,38 +98,6 @@ module QueueBus
   end
 end
 
-class Redis
-  module Connection
-    class Memory
-      def script(*args)
-        case args[1]
-        when Sidekiq::Scheduled::Enq::LUA_ZPOPBYSCORE
-          QueueBus.redis do |redis|
-            now = Time.now.to_f
-
-            # Process both 'schedule' and 'retry' sets
-            %w[schedule retry].each do |set_name|
-              # Get jobs that are ready to be processed (score <= now)
-              jobs = redis.zrangebyscore(set_name, '-inf', now)
-
-              jobs.each do |job_json|
-                # Remove from scheduled set
-                redis.zrem(set_name, job_json)
-
-                # Parse and re-enqueue the job
-                job_data = JSON.parse(job_json)
-                queue_name = job_data['queue'] || 'default'
-                redis.lpush("queue:#{queue_name}", job_json)
-              end
-            end
-          end
-        else
-          raise "NOSCRIPT - FakeRedis gem does not include Lua support. Please see spec/spec_helper.rb for more information."
-        end
-      end
-    end
-  end
-end
 
 def test_sub(event_name, queue = 'default')
   matcher = { 'bus_event_type' => event_name }
