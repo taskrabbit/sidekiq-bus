@@ -66,7 +66,9 @@ module QueueBus
           description: 'Enqueues a heart beat every minute for the queue-bus'
         )
 
-        ::Sidekiq::Scheduler.instance.update_schedule unless ::Sidekiq::Scheduler.instance.dynamic
+        # ::Sidekiq::Scheduler.instance.update_schedule unless ::Sidekiq::Scheduler.instance.dynamic
+        # TODO - the below is the documented strategy- does it still need the guard clause?
+        SidekiqScheduler::Scheduler.instance.reload_schedule!
       end
     end
   end
