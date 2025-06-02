@@ -17,12 +17,10 @@ Gem::Specification.new do |s|
   s.require_paths = ["lib"]
 
   s.add_dependency('queue-bus', ['>= 0.7', '< 1'])
-  s.add_dependency('sidekiq', ['>= 3.0.0', '< 7.0'])
-  s.add_dependency('rack', "< 3.0") # Sidekiq 6 was sunset before Rack 3.0 and does not support it
-  s.add_dependency('sidekiq-scheduler', ['>= 3.0', '< 5.0'])
+  s.add_dependency('sidekiq', ['>= 7.0.0', '< 8.0'])
+  s.add_dependency('sidekiq-scheduler', ['>= 5.0.6', '< 7.0'])
 
   s.add_development_dependency("rspec")
-  s.add_development_dependency("fakeredis")
   s.add_development_dependency("redis-namespace")
   s.add_development_dependency("pry")
   s.add_development_dependency("timecop")
