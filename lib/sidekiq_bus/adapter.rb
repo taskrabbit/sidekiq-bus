@@ -24,9 +24,8 @@ module QueueBus
         # Return a redis-rb Redis object even if Sidekiq returns
         # a RedisClient object.
         ::Sidekiq.redis do |conn|
-          binding.irb
           if conn.is_a?(::Redis)
-            return yield conn
+            return block.call(conn)
           end
 
           config = conn.config
@@ -39,7 +38,7 @@ module QueueBus
             password: config.password
           )
           begin
-            yield redis_instance
+            block.call(conn)
           ensure
             redis_instance.close
           end
